@@ -33,7 +33,6 @@
 //Lendo sequencia e padrao a partir de um arquivo
 __host__ void le_sequencia(char *nome_arquivo, char *seq, int tam)
 {
-
   FILE *arq;
   arq = fopen(nome_arquivo, "r");
   fscanf(arq, "%s", seq);
@@ -44,10 +43,8 @@ __host__ void le_sequencia(char *nome_arquivo, char *seq, int tam)
 __device__ int ord(char *padrao, char c)
 {
   int i = M - 1;
-
   while(padrao[i] != c && i >= 0)
     i--;
-
   if(i >= 0)
     return i;
   else 
@@ -55,21 +52,19 @@ __device__ int ord(char *padrao, char c)
 }
 
 
-__global__ void kernel(char *texto, char *padrao, int tamLinha, int iBloco){
-   
-   //Alterando o indice da Thread de acordo com o bloco
-  int iThread  = blockDim.x * blockIdx.x + threadIdx.x; 
-  
+__global__ void kernel(char *texto, char *padrao, int tamLinha, int iBloco)
+{
+  int iThread  = blockDim.x * blockIdx.x + threadIdx.x;  //Alterando o indice da Thread de acordo com o bloco
   int d[M];
   int i = 0, k, j;
   int a = 1;
   
-
   //Pre-processamento
   for (j = 0; j < M; j++) 
     d[j] = M;
 
-  for (j = 0; j < M - 1; j++){
+  for (j = 0; j < M - 1; j++)
+  {
     d[ord(padrao, padrao[j])] = M - a;
     a++;  
   }
@@ -84,42 +79,31 @@ __global__ void kernel(char *texto, char *padrao, int tamLinha, int iBloco){
   {
     k = i - 1;
     j = M - 1;
-      
-
     while ((j > 0) && (texto[k] == padrao[j]))
     {
       k -= 1;
       j -= 1;
-      
     }
-
     if (j == 0 && (texto[k] == padrao[j]) )
     {
       printf("Casamento no indice: %d\n",k + (iBloco * SUBDOMINIO), iThread, iBloco);
     }
-
     a = ord(padrao, texto[i-1]);
     i = i + d[a];
   }
 }
 
 
-
 using namespace std;
-int main (int argc, char **argv){
-
-
+int main (int argc, char **argv)
+{
    cudaEvent_t e_Start,
                       e_Stop;
-
    curandState       *mStates = NULL;
-
-
   float elapsedTime = 0.0f;
 
    //Criando os vetores
   char *d_Texto = NULL, *d_Padrao = NULL;
-  
   char h_Texto[DOMINIO], h_Padrao[M];
 
   le_sequencia("dna.txt", h_Texto, DOMINIO);
@@ -134,12 +118,11 @@ int main (int argc, char **argv){
   //Copiando o texto da CPU -> GPU 
   CHECK_ERROR(cudaMemcpy(d_Texto, h_Texto , DOMINIO * sizeof(char),  cudaMemcpyHostToDevice)); 
   CHECK_ERROR(cudaMemcpy(d_Padrao, h_Padrao, M * sizeof(char),  cudaMemcpyHostToDevice)); 
-  
 
-   cudaDeviceProp deviceProp;                   //Levantar a capacidade do device
-   cudaGetDeviceProperties(&deviceProp, 0);
-     
-   cout << "\nAlgoritmo Boyer Moore Horspool\n";
+  cudaDeviceProp deviceProp;                   //Levantar a capacidade do device
+  cudaGetDeviceProperties(&deviceProp, 0);
+
+  cout << "\nAlgoritmo Boyer Moore Horspool\n";
 
    //Dados do Problema
    cout << "Tamanho do texto: " << DOMINIO << " caracteres" << endl;
@@ -157,30 +140,23 @@ int main (int argc, char **argv){
    CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Texto), qtdeDados));
    CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Padrao), M * sizeof(char)));
    CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&mStates), DOMINIO * sizeof(curandState)));
-  
 
    CHECK_ERROR(cudaEventRecord(e_Start, cudaEventDefault));
-   
-  
-   //Lançando o KERNEL
+ 
+  //Lançando o KERNEL
   for(int k = 0; k < BLOCOS; k++)
      kernel<<<1, LINHAS, 1>>>(d_Texto + (SUBDOMINIO * k), d_Padrao, TAMLINHA, k);
-     
-
+   
    CHECK_ERROR(cudaDeviceSynchronize());
-
    CHECK_ERROR(cudaEventRecord(e_Stop, cudaEventDefault));
-
    CHECK_ERROR(cudaEventSynchronize(e_Stop));
    CHECK_ERROR(cudaEventElapsedTime(&elapsedTime, e_Start, e_Stop));
    
    cout << "Tempo de execucao: " << elapsedTime / 1000.0f << " (s) \n";
 
    CHECK_ERROR( cudaFree(mStates) ); 
- 
    CHECK_ERROR( cudaEventDestroy (e_Start)  );
    CHECK_ERROR( cudaEventDestroy (e_Stop)  );
-
    cout << "\nFIM\n";
    return EXIT_SUCCESS;
 }
