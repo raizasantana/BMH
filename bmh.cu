@@ -1,24 +1,21 @@
-    //nvcc -arch=sm_11 -m64 -O3 main.cu -o stream.bin
-
-
-#include<iostream>
-#include<cstdlib>
+#include <iostream>
+#include <cstdlib>
 #include <cuda_runtime.h>
 #include <cassert>
 #include <ctime>
 #include <curand.h>
 #include <curand_kernel.h>
-#include<cmath>
+#include <cmath>
 #include <string.h>
 
 
-#define DOMINIO 128
-#define SUBDOMINIO 64 // = DOMINIO / BLOCO
+#define DOMINIO 10000
+#define SUBDOMINIO 5000 // = DOMINIO / BLOCO
 #define BLOCOS 2
-#define M 3    //Tamanho do padrao
-#define N 8     //Tamanho da linha
-#define LINHAS 8 //Linhas por bloco = threads por bloco
-#define TAMLINHA 8
+#define M 4    //Tamanho do padrao
+#define N 100     //Tamanho da linha
+#define LINHAS 100 //Linhas por bloco = threads por bloco
+#define TAMLINHA 100
 
 
 #define CHECK_ERROR(call) do {                                                    \
@@ -52,9 +49,11 @@ __device__ int ord(char *padrao, char c)
 }
 
 
-__global__ void kernel(char *texto, char *padrao, int tamLinha, int iBloco)
+__global__ void kernel(char *texto, char *padrao, int tamLinha, int bloco, int *res)
 {
-  int iThread  = blockDim.x * blockIdx.x + threadIdx.x;  //Alterando o indice da Thread de acordo com o bloco
+
+  int thread  = blockDim.x * blockIdx.x + threadIdx.x; 
+
   int d[M];
   int i = 0, k, j;
   int a = 1;
@@ -69,94 +68,120 @@ __global__ void kernel(char *texto, char *padrao, int tamLinha, int iBloco)
     a++;  
   }
 
-  i = (iThread * tamLinha) + M;
+  i = (thread * tamLinha) + M;
 
   //C e F sao o inicio e o fim de cada linha, pra evitar que uma thread acesse a linha da outra thread
-  int c = iThread * tamLinha;
-  int f =  (iThread * tamLinha) + tamLinha;
+  int c = thread * tamLinha;
+  int f =  (thread * tamLinha) + tamLinha;
 
   while ((i <= f) && ( i > c))
   {
     k = i - 1;
     j = M - 1;
+  
     while ((j > 0) && (texto[k] == padrao[j]))
     {
       k -= 1;
       j -= 1;
     }
-    if (j == 0 && (texto[k] == padrao[j]) )
-    {
-      printf("Casamento no indice: %d\n",k + (iBloco * SUBDOMINIO), iThread, iBloco);
-    }
+  
+    if (j == 0 && (texto[k] == padrao[j]))
+      res[k] = 1;
+    
     a = ord(padrao, texto[i-1]);
     i = i + d[a];
+
   }
 }
 
 
 using namespace std;
+
 int main (int argc, char **argv)
 {
-   cudaEvent_t e_Start,
-                      e_Stop;
-   curandState       *mStates = NULL;
+
+  cudaEvent_t e_Start, e_Stop;
+
   float elapsedTime = 0.0f;
 
-   //Criando os vetores
+  //Criando os vetores - Device
   char *d_Texto = NULL, *d_Padrao = NULL;
+  int *d_resultado = NULL;
+
+  //Vetores - Host
   char h_Texto[DOMINIO], h_Padrao[M];
+  int h_resultado[DOMINIO];
 
   le_sequencia("dna.txt", h_Texto, DOMINIO);
   le_sequencia("padrao_dna.txt", h_Padrao, M);
+
+  memset(h_resultado, 0,  DOMINIO * sizeof(int));
 
   unsigned int qtdeDados = DOMINIO * sizeof(char);
    
   //Aloca memória GPU
   CHECK_ERROR(cudaMalloc((void**) &d_Texto, DOMINIO * sizeof(char)));
   CHECK_ERROR(cudaMalloc((void**) &d_Padrao, M * sizeof(char)));
+  CHECK_ERROR(cudaMalloc((void**) &d_resultado, DOMINIO * sizeof(int)));
 
   //Copiando o texto da CPU -> GPU 
   CHECK_ERROR(cudaMemcpy(d_Texto, h_Texto , DOMINIO * sizeof(char),  cudaMemcpyHostToDevice)); 
   CHECK_ERROR(cudaMemcpy(d_Padrao, h_Padrao, M * sizeof(char),  cudaMemcpyHostToDevice)); 
+  CHECK_ERROR(cudaMemcpy(d_resultado, h_resultado, DOMINIO * sizeof(int),  cudaMemcpyHostToDevice)); 
 
-  cudaDeviceProp deviceProp;                   //Levantar a capacidade do device
+  cudaDeviceProp deviceProp;        
   cudaGetDeviceProperties(&deviceProp, 0);
 
-  cout << "\nAlgoritmo Boyer Moore Horspool\n";
+  cout << "\n\n  Algoritmo Boyer Moore Horspool\n\n\n";
 
    //Dados do Problema
-   cout << "Tamanho do texto: " << DOMINIO << " caracteres" << endl;
-   cout << "Blocos: " << BLOCOS << endl;
-   cout << "Threads: " << LINHAS << endl;
+  cout << "::Dados do Problema::\n" << endl;
+  cout << "Tamanho do texto: " << DOMINIO << " caracteres" << endl;
+  cout << "Blocos: " << BLOCOS << endl;
+  cout << "Threads: " << LINHAS << endl;
+  cout << "Padrao: " << h_Padrao << endl;
 
-     //Reset no device
+  //Reset no device
    CHECK_ERROR(cudaDeviceReset());
 
-     //Criando eventos
+  //Criando eventos
    CHECK_ERROR(cudaEventCreate(&e_Start));
    CHECK_ERROR(cudaEventCreate(&e_Stop));
-   
-   //alocando memória em GPU
-   CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Texto), qtdeDados));
-   CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Padrao), M * sizeof(char)));
-   CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&mStates), DOMINIO * sizeof(curandState)));
 
-   CHECK_ERROR(cudaEventRecord(e_Start, cudaEventDefault));
+
+ //Alocando memória em GPU
+ CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Texto), qtdeDados));
+ CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_Padrao), M * sizeof(char)));
+ CHECK_ERROR(cudaMalloc(reinterpret_cast<void**> (&d_resultado), DOMINIO * sizeof(int))); 
+
+ CHECK_ERROR(cudaEventRecord(e_Start, cudaEventDefault));
  
   //Lançando o KERNEL
   for(int k = 0; k < BLOCOS; k++)
-     kernel<<<1, LINHAS, 1>>>(d_Texto + (SUBDOMINIO * k), d_Padrao, TAMLINHA, k);
+     kernel<<<1, LINHAS, 1>>>(d_Texto + (SUBDOMINIO * k), d_Padrao, TAMLINHA, k, d_resultado + (SUBDOMINIO * k));
    
    CHECK_ERROR(cudaDeviceSynchronize());
+
+   //GPU -> CPU
+   CHECK_ERROR(cudaMemcpy(h_resultado, d_resultado, DOMINIO * sizeof(int), cudaMemcpyDeviceToHost));
+
    CHECK_ERROR(cudaEventRecord(e_Stop, cudaEventDefault));
    CHECK_ERROR(cudaEventSynchronize(e_Stop));
    CHECK_ERROR(cudaEventElapsedTime(&elapsedTime, e_Start, e_Stop));
    
-   cout << "Tempo de execucao: " << elapsedTime / 1000.0f << " (s) \n";
+   cout << "Tempo de execucao: " << elapsedTime / 1000.0f << " (s) \n\n\n";
 
-   CHECK_ERROR( cudaFree(mStates) ); 
-   CHECK_ERROR( cudaEventDestroy (e_Start)  );
-   CHECK_ERROR( cudaEventDestroy (e_Stop)  );
+   //Resultado
+   for(int k = 0; k < DOMINIO; k++)
+      if(h_resultado[k] == 1)
+        cout << "Ocorrencia em: " << k << endl;
+   
+
+   
+   CHECK_ERROR(cudaEventDestroy(e_Start));
+   CHECK_ERROR(cudaEventDestroy(e_Stop));
+
    cout << "\nFIM\n";
+
    return EXIT_SUCCESS;
 }
