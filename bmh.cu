@@ -10,9 +10,9 @@
 
 
 #define DOMINIO 10000
-#define SUBDOMINIO 5000 // = DOMINIO / BLOCO
-#define BLOCOS 2
-#define M 4    //Tamanho do padrao
+#define SUBDOMINIO 1000 // = DOMINIO / BLOCO
+#define BLOCOS 10
+#define M 10 //Tamanho do padrao
 #define N 100     //Tamanho da linha
 #define LINHAS 100 //Linhas por bloco = threads por bloco
 #define TAMLINHA 100
@@ -49,7 +49,7 @@ __device__ int ord(char *padrao, char c)
 }
 
 
-__global__ void kernel(char *texto, char *padrao, int tamLinha, int bloco, int *res)
+__global__ void kernel(char *texto, char *padrao,  int *res)
 {
 
   int thread  = blockDim.x * blockIdx.x + threadIdx.x; 
@@ -57,6 +57,8 @@ __global__ void kernel(char *texto, char *padrao, int tamLinha, int bloco, int *
   int d[M];
   int i = 0, k, j;
   int a = 1;
+
+  k = SUBDOMINIO * blockDim.x;
   
   //Pre-processamento
   for (j = 0; j < M; j++) 
@@ -68,11 +70,11 @@ __global__ void kernel(char *texto, char *padrao, int tamLinha, int bloco, int *
     a++;  
   }
 
-  i = (thread * tamLinha) + M;
+  i = (thread * TAMLINHA) + M;
 
   //C e F sao o inicio e o fim de cada linha, pra evitar que uma thread acesse a linha da outra thread
-  int c = thread * tamLinha;
-  int f =  (thread * tamLinha) + tamLinha;
+  int c = thread * TAMLINHA;
+  int f =  (thread * TAMLINHA) + TAMLINHA;
 
   while ((i <= f) && ( i > c))
   {
@@ -157,8 +159,7 @@ int main (int argc, char **argv)
  CHECK_ERROR(cudaEventRecord(e_Start, cudaEventDefault));
  
   //Lançando o KERNEL
-  for(int k = 0; k < BLOCOS; k++)
-     kernel<<<1, LINHAS, 1>>>(d_Texto + (SUBDOMINIO * k), d_Padrao, TAMLINHA, k, d_resultado + (SUBDOMINIO * k));
+     kernel<<<BLOCOS, LINHAS, 1>>>(d_Texto, d_Padrao, d_resultado);
    
    CHECK_ERROR(cudaDeviceSynchronize());
 
